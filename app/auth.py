@@ -14,7 +14,7 @@ from pydantic import BaseModel, ValidationError
 # openssl rand -hex 32
 SECRET_KEY = "2f820a69dbabc7bee7bbfe836db2d1e5b26f4504f637f7384af7390aa2ba2ea9"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 fake_users_db = {
