@@ -10,6 +10,7 @@ from fastapi.security import (
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ValidationError
+from fastapi.middleware.cors import CORSMiddleware
 
 # to get a string like this run:
 # openssl rand -hex 32
@@ -19,16 +20,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
+    "johndoe@example.com": {
         "full_name": "John Doe",
         "email": "johndoe@example.com",
         "phone": 123,
         "hashed_password": "$2b$12$c82gByJCfFBVAtV5J9EIr.PiAfTRFTQcjqS4e6ZSH8aGfJc0qWkh2", #123456
         "disabled": False,
     },
-    "alice": {
-        "username": "alice",
+    "alicechains@example.com": {
         "full_name": "Alice Chains",
         "email": "alicechains@example.com",
         "hashed_password": "$2b$12$as1CoEvYWepO2Fe/bxvSF.xJ.h76brXIDf7pzizU.XBBvGYH7uNNi", #123456
@@ -43,7 +42,7 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    username: Union[str, None] = None
+    email: Union[str, None] = None
     scopes: List[str] = []
 
 
@@ -67,19 +66,28 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 app = FastAPI()
 
+origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
+def get_user(db, email: str):
+    if email in db:
+        user_dict = db[email]
         return UserInDB(**user_dict)
 
 
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
+def authenticate_user(fake_db, email: str, password: str):
+    user = get_user(fake_db, email)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -112,14 +120,14 @@ async def get_current_user(
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        email: str = payload.get("sub")
+        if email is None:
             raise credentials_exception
         token_scopes = payload.get("scopes", [])
-        token_data = TokenData(scopes=token_scopes, username=username)
+        token_data = TokenData(scopes=token_scopes, email=email)
     except (JWTError, ValidationError):
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
+    user = get_user(fake_users_db, email=token_data.email)
     if user is None:
         raise credentials_exception
     for scope in security_scopes.scopes:
@@ -144,10 +152,10 @@ async def get_current_active_user(
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(fake_users_db, form_data.username, form_data.password)
     if not user:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "scopes": form_data.scopes},
+        data={"sub": user.email, "scopes": form_data.scopes},
         expires_delta=access_token_expires,
     )
     return {"access_token": access_token, "token_type": "bearer"}
@@ -162,7 +170,7 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
 async def read_own_items(
     current_user: User = Security(get_current_active_user, scopes=["items"])
 ):
-    return [{"item_id": "Foo", "owner": current_user.username}]
+    return [{"item_id": "Foo", "owner": current_user.email}]
 
 
 @app.get("/status/")
